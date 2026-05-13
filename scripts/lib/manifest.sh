@@ -32,21 +32,17 @@ manifest_init() {
   echo '{"version":1,"skills":{}}' > "$path"
 }
 
-# manifest_upsert <path> <name> <provider> <source> <scope> <profile> \
-#                 <agents_json> [<universal_agents_json>] [<universal_more>]
+# manifest_upsert <path> <name> <provider> <source> <scope> <profile> <agents_json>
 #
 # Write-once invariant: `first_seen` captures when cortex first saw the skill
-# and never changes on later runs. Implementation: the `//` fallback supplies
-# a default object containing first_seen only when the entry is absent; the
-# trailing `+` merge overwrites every other field. `del(.adopted)` strips the
-# legacy field from old manifests.
-#
-# universal_agents / universal_more are only written when this run captured
-# them. Re-runs that didn't see an "Installation Summary" block (e.g. an
-# already-installed source) preserve the previously recorded values.
+# and never changes on later runs. The `//` fallback supplies a default
+# object with first_seen only when the entry is absent; the trailing `+`
+# merge overwrites every other field. `del(.adopted, .universal_agents,
+# .universal_more)` strips legacy fields from earlier manifest schemas —
+# universal-agent info is derived at render time from the agents registry,
+# not stored per skill.
 manifest_upsert() {
-  local path="$1" name="$2" provider="$3" source="$4" scope="$5" prof="$6"
-  local agents="$7" universal_agents="${8:-[]}" universal_more="${9:-0}"
+  local path="$1" name="$2" provider="$3" source="$4" scope="$5" prof="$6" agents="$7"
   local now tmp
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   tmp="$(mktemp)"
@@ -56,20 +52,12 @@ manifest_upsert() {
      --arg scope "$scope" \
      --arg prof "$prof" \
      --argjson agents "$agents" \
-     --argjson universal_agents "$universal_agents" \
-     --argjson universal_more "$universal_more" \
      --arg now "$now" '
      .skills[$name] = (
        (.skills[$name] // { first_seen: $now })
        + { provider: $provider, source: $source, scope: $scope, profile: $prof,
            agents: $agents, updated_at: $now }
-       + (if ($universal_agents | length) > 0
-          then { universal_agents: $universal_agents }
-          else {} end)
-       + (if $universal_more > 0
-          then { universal_more: $universal_more }
-          else {} end)
-       | del(.adopted)
+       | del(.adopted, .universal_agents, .universal_more)
      )
   ' "$path" > "$tmp"
   mv "$tmp" "$path"

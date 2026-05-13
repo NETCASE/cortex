@@ -24,6 +24,7 @@ LIB_DIR="$SCRIPT_DIR/lib"
 . "$LIB_DIR/style.sh"
 . "$LIB_DIR/manifest.sh"
 . "$LIB_DIR/source.sh"
+. "$LIB_DIR/agents.sh"
 
 # ── shared helpers ───────────────────────────────────────────────
 list_profiles() {
@@ -91,12 +92,11 @@ pick_profile() {
 #
 # Process one entry from a profile's `sources` array. Resolves the source,
 # determines the authoritative skill list (explicit `skills` array or
-# `skills add --list`), runs the install, parses the captured output for
-# universal-agent info, then writes a manifest entry for every name the
-# post-install snapshot confirms.
+# `skills add --list`), runs the install, then writes a manifest entry for
+# every name the post-install snapshot confirms.
 #
 # verbose=0: skills.sh output is hidden; cortex prints a compact summary.
-# verbose=1: skills.sh output is streamed live (same as the captured copy).
+# verbose=1: skills.sh output is streamed live via `tee`.
 # In either mode, a non-zero exit from `skills add` dumps the captured
 # output to stderr so the user can see what went wrong.
 install_one_source() {
@@ -106,8 +106,7 @@ install_one_source() {
   local after manifest captured exit_code
   local skill_args agent_args desc tracked names_to_track
   local name actual_agents
-  local parsed_universal universal_csv universal_more universal_agents_json
-  local installed_names all_symlink all_universal max_universal_more
+  local installed_names all_symlink
 
   scope="$(jq -r '.scope // "global"' <<<"$src")"
   case "$scope" in
@@ -155,8 +154,7 @@ install_one_source() {
   echo "→ $source_str ($scope)$desc"
 
   # Decide which skill names belong to this source. Explicit `skills` array
-  # wins; otherwise ask `skills add --list`. Empty result → warn and skip
-  # manifest tracking (we'd rather under-record than write phantom entries).
+  # wins; otherwise ask `skills add --list`.
   names_to_track=()
   if [[ "$(jq 'length' <<<"$skills_json")" -gt 0 ]]; then
     while IFS= read -r n; do names_to_track+=("$n"); done < <(jq -r '.[]' <<<"$skills_json")
@@ -169,8 +167,7 @@ install_one_source() {
     fi
   fi
 
-  # Run the install. Capture stdout+stderr to a temp file. In verbose mode
-  # also tee to the terminal for live progress.
+  # Run install. Capture to a temp file; tee live in verbose mode.
   captured="$(mktemp)"
   if [[ "$verbose" == 1 ]]; then
     npx -y skills add "$source_str" $scope_flag -y \
@@ -192,23 +189,11 @@ install_one_source() {
   fi
 
   after="$(snapshot_for_scope "$scope")"
-
-  # Parse universal-agent info out of the captured Installation Summary block.
-  # parsed_universal becomes { "<skill>": { universal_csv, universal_more } }.
-  parsed_universal="$(parse_install_capture "$captured" | jq -Rs '
-    split("\n") | map(select(length > 0)) | map(split("\t")) |
-    map({ key: .[0], value: { csv: .[1], more: (.[2] | tonumber) } }) |
-    from_entries
-  ')"
-
   manifest="$(manifest_path_for "$scope")"
   manifest_init "$manifest"
 
-  # Accumulators for the compact summary line.
   installed_names=()
   all_symlink='[]'
-  all_universal='[]'
-  max_universal_more=0
 
   tracked=0
   for name in "${names_to_track[@]}"; do
@@ -219,41 +204,37 @@ install_one_source() {
        [[ "$(jq --arg n "$name" 'any(.name == $n)' <<<"$after")" != "true" ]]; then
       continue
     fi
-
-    universal_csv="$(jq -r --arg n "$name" '.[$n].csv // ""' <<<"$parsed_universal")"
-    universal_more="$(jq -r --arg n "$name" '.[$n].more // 0' <<<"$parsed_universal")"
-    if [[ -n "$universal_csv" ]]; then
-      universal_agents_json="$(jq -Rc 'split(", ")' <<<"$universal_csv")"
-    else
-      universal_agents_json='[]'
-    fi
-
-    manifest_upsert "$manifest" "$name" "$provider" "$source_str" "$scope" "$profile" \
-      "$actual_agents" "$universal_agents_json" "$universal_more"
+    manifest_upsert "$manifest" "$name" "$provider" "$source_str" "$scope" "$profile" "$actual_agents"
     tracked=$((tracked + 1))
     installed_names+=("$name")
-
     all_symlink="$(jq -c --argjson new "$actual_agents" '. + $new | unique' <<<"$all_symlink")"
-    all_universal="$(jq -c --argjson new "$universal_agents_json" '. + $new | unique' <<<"$all_universal")"
-    if [[ "$universal_more" -gt "$max_universal_more" ]]; then
-      max_universal_more=$universal_more
-    fi
   done
 
-  # Compact summary (non-verbose only — in verbose the full CLI output is
-  # already on screen).
+  # Compact summary (default mode only). Universal agents come from the
+  # registry — every installed universal-mode agent on the machine sees
+  # any skill cortex writes to ~/.agents/skills/.
   if [[ "$verbose" != 1 && $tracked -gt 0 ]]; then
     local skills_csv sym_csv uni_csv line
+    local installed_universal_names
     skills_csv="$(IFS=,; printf '%s' "${installed_names[*]}" | sed 's/,/, /g')"
     sym_csv="$(jq -r 'join(", ")' <<<"$all_symlink")"
-    uni_csv="$(jq -r 'join(", ")' <<<"$all_universal")"
+    if [[ "$scope" == "global" ]]; then
+      installed_universal_names="$(
+        agents_all_json | jq -r --argjson installed "$(agents_installed_json)" '
+          map(select(.isUniversal and (.name as $n | $installed | index($n)))) |
+          map(.displayName) | sort | join(", ")
+        '
+      )"
+      uni_csv="$installed_universal_names"
+    else
+      uni_csv=""
+    fi
     echo "  ✓ installed $tracked skill(s): $skills_csv"
     line=""
     [[ -n "$sym_csv" ]] && line+="symlink: $sym_csv"
-    if [[ -n "$uni_csv" || $max_universal_more -gt 0 ]]; then
+    if [[ -n "$uni_csv" ]]; then
       [[ -n "$line" ]] && line+=" · "
       line+="universal: $uni_csv"
-      [[ $max_universal_more -gt 0 ]] && line+=" (+$max_universal_more more)"
     fi
     [[ -n "$line" ]] && echo "    $line"
   fi
@@ -317,26 +298,6 @@ cmd_install() {
 
 # ── status ───────────────────────────────────────────────────────
 
-# Display-name → home-relative dir for the per-agent symlink locations.
-AGENT_LINK_DIRS='{
-  "Claude Code": ".claude",
-  "Qwen Code": ".qwen",
-  "Continue": ".continue",
-  "Cursor": ".cursor",
-  "Gemini CLI": ".gemini",
-  "Codex": ".codex",
-  "Windsurf": ".windsurf",
-  "OpenCode": ".config/opencode",
-  "Goose": ".config/goose",
-  "GitHub Copilot": ".config/github-copilot",
-  "Amp": ".amp",
-  "Cline": ".cline",
-  "Roo Code": ".roo",
-  "Kilo Code": ".kilo",
-  "Junie": ".junie",
-  "Kiro": ".kiro"
-}'
-
 print_global() {
   local json manifest
   json="$(npx -y skills list --global --json 2>/dev/null || echo '[]')"
@@ -347,29 +308,51 @@ print_global() {
     # One row per (skill, agent). PATH is the agent's symlink path; falls back
     # to the canonical store path when the agent's dir isn't in AGENT_LINK_DIRS.
     # BY column: cortex / ext, computed against the global manifest.
+    # Display-name → { skillsDir, isUniversal } from the registry. Used both
+    # to render the per-agent path for symlink rows and to know which agents
+    # are universal-mode.
+    local display_info installed_universal_names
+    display_info="$(
+      agents_all_json | jq -c '
+        map({ key: .displayName, value: { skillsDir, isUniversal } }) | from_entries
+      '
+    )"
+    # Names of installed universal agents (by displayName) — these are the
+    # ones we expand as extra rows under each managed skill.
+    installed_universal_names="$(
+      agents_all_json | jq -c --argjson installed "$(agents_installed_json)" '
+        map(select(.isUniversal and (.name as $n | $installed | index($n)))) |
+        map(.displayName)
+      '
+    )"
+
     echo "$json" | jq -r \
-      --argjson m "$AGENT_LINK_DIRS" \
       --arg home "$HOME" \
-      --argjson mani "$manifest" '
+      --argjson mani "$manifest" \
+      --argjson info "$display_info" \
+      --argjson universals "$installed_universal_names" '
       .[] | . as $s |
       ($s.agents // []) as $ags |
-      ($mani[$s.name].universal_agents // []) as $ugs |
-      ($mani[$s.name].universal_more // 0) as $umore |
       (if $mani[$s.name] then "cortex" else "ext" end) as $by |
       (
-        # Symlink rows (one per agent in `agents`, or a placeholder if empty).
+        # Per-agent symlink rows. Path comes from the registry: skillsDir
+        # gives ".claude/skills" → "~/.claude/skills/<name>". Universal-mode
+        # agents share the canonical store path ("~/.agents/skills/<name>").
+        # Unknown agents (not in registry) fall back to $s.path.
         if ($ags | length) == 0
         then [ $s.name, $by, "—", ($s.path | sub("^"+$home; "~")) ]
-        else $ags[] | [ $s.name, $by, .,
-                        (if $m[.] then "~/" + $m[.] + "/skills/" + $s.name
+        else $ags[] | . as $ag |
+                      [ $s.name, $by, $ag,
+                        (if $info[$ag] then "~/" + $info[$ag].skillsDir + "/" + $s.name
                          else ($s.path | sub("^"+$home; "~")) end) ]
         end
       ),
-      # Universal rows: one per named universal agent.
-      ($ugs[] | [ $s.name, "universal", ., "~/.agents/skills/" + $s.name ]),
-      # "+N more" row for unnamed universal agents.
-      (if $umore > 0
-       then [ $s.name, "universal", "(+\($umore) more)", "" ]
+      # Universal rows: one per detected universal agent, but only for
+      # cortex-managed skills (ext skills get no expansion).
+      (if $by == "cortex"
+       then $universals[] | . as $ag |
+            select(($ags | index($ag)) | not) |
+            [ $s.name, "universal", $ag, "~/.agents/skills/" + $s.name ]
        else empty
        end)
       | @tsv'
@@ -427,54 +410,32 @@ cmd_status() {
 }
 
 # ── detect-agents ────────────────────────────────────────────────
-# Known agent-id → home-relative directory. skills.sh auto-detects an agent
-# when its directory exists; this map mirrors that for the common ones.
-AGENT_DIRS="claude-code:.claude
-qwen-code:.qwen
-continue:.continue
-cursor:.cursor
-gemini-cli:.gemini
-codex:.codex
-windsurf:.windsurf
-github-copilot:.config/github-copilot
-opencode:.config/opencode
-goose:.config/goose
-amp:.amp
-cline:.cline
-roo:.roo
-kilo:.kilo
-kode:.kode
-codebuddy:.codebuddy
-trae:.trae
-warp:.warp
-junie:.junie
-firebender:.firebender
-aider-desk:.aider-desk
-crush:.crush
-mux:.mux
-openhands:.openhands
-kimi-cli:.kimi"
 
 cmd_detect_agents() {
+  need_jq
   print_header "detect-agents"
-  printf '  %sAgents whose directory exists under your home — `cortex install` targets all of these:%s\n\n' "$DIM" "$RESET"
+  printf '  %sAgents skills.sh would auto-detect on this machine — `cortex install` targets all of these:%s\n\n' "$DIM" "$RESET"
 
-  local rows="" id dir
-  while IFS=: read -r id dir; do
-    [[ -d "$HOME/$dir" ]] && rows+="$id"$'\t'"~/$dir"$'\n'
-  done <<<"$AGENT_DIRS"
+  # Walk the registry, emit one row per agent whose home dir exists.
+  local rows="" name display home_dir is_universal kind
+  while IFS=$'\t' read -r name display home_dir is_universal; do
+    [[ -z "$name" || -z "$home_dir" ]] && continue
+    [[ -e "$HOME/$home_dir" ]] || continue
+    kind="symlink"
+    [[ "$is_universal" == "true" ]] && kind="universal"
+    rows+="$display"$'\t'"$name"$'\t'"$kind"$'\t'"~/$home_dir"$'\n'
+  done < <(jq -r '.[] | [.name, .displayName, .homeDir, .isUniversal] | @tsv' "$AGENTS_JSON_PATH")
 
   if [[ -z "$rows" ]]; then
     echo "  $DIM(none detected)$RESET"
   else
-    { printf 'AGENT\tDIRECTORY\n'; printf '%s' "$rows"; } | fmt_table | style_name_column
+    { printf 'AGENT\tID\tKIND\tHOME\n'; printf '%s' "$rows"; } | fmt_table | style_name_column
   fi
 
   echo
-  printf '  %sNote: this mirrors the skills.sh directory-presence heuristic. A few agents are\n' "$DIM"
-  printf '  detected via editor plugins or other markers this scan does not check (e.g. some\n'
-  printf '  GitHub Copilot setups) — those still get installed by `cortex install`. To target\n'
-  printf '  a specific agent only:  npx skills add <repo> -a <agent-id>%s\n' "$RESET"
+  printf '  %sRegistry: %s agent(s) total, sourced from skills.sh.\n' "$DIM" "$(jq 'length' "$AGENTS_JSON_PATH")"
+  printf '  Refresh with: bash scripts/refresh-agents.sh.\n'
+  printf '  To target a specific agent only:  npx skills add <repo> -a <id>%s\n' "$RESET"
   print_footer
 }
 

@@ -1,0 +1,380 @@
+[
+  {
+    "name": "adal",
+    "displayName": "AdaL",
+    "skillsDir": ".adal/skills",
+    "isUniversal": false,
+    "homeDir": ".adal"
+  },
+  {
+    "name": "aider-desk",
+    "displayName": "AiderDesk",
+    "skillsDir": ".aider-desk/skills",
+    "isUniversal": false,
+    "homeDir": ".aider-desk"
+  },
+  {
+    "name": "amp",
+    "displayName": "Amp",
+    "skillsDir": ".agents/skills",
+    "isUniversal": true,
+    "homeDir": ".config/amp"
+  },
+  {
+    "name": "antigravity",
+    "displayName": "Antigravity",
+    "skillsDir": ".agents/skills",
+    "isUniversal": true,
+    "homeDir": ".gemini/antigravity"
+  },
+  {
+    "name": "augment",
+    "displayName": "Augment",
+    "skillsDir": ".augment/skills",
+    "isUniversal": false,
+    "homeDir": ".augment"
+  },
+  {
+    "name": "claude-code",
+    "displayName": "Claude Code",
+    "skillsDir": ".claude/skills",
+    "isUniversal": false,
+    "homeDir": ".claude"
+  },
+  {
+    "name": "cline",
+    "displayName": "Cline",
+    "skillsDir": ".agents/skills",
+    "isUniversal": true,
+    "homeDir": ".cline"
+  },
+  {
+    "name": "codestudio",
+    "displayName": "Code Studio",
+    "skillsDir": ".codestudio/skills",
+    "isUniversal": false,
+    "homeDir": ".codestudio"
+  },
+  {
+    "name": "codearts-agent",
+    "displayName": "CodeArts Agent",
+    "skillsDir": ".codeartsdoer/skills",
+    "isUniversal": false,
+    "homeDir": ".codeartsdoer"
+  },
+  {
+    "name": "codebuddy",
+    "displayName": "CodeBuddy",
+    "skillsDir": ".codebuddy/skills",
+    "isUniversal": false,
+    "homeDir": ".codebuddy"
+  },
+  {
+    "name": "codemaker",
+    "displayName": "Codemaker",
+    "skillsDir": ".codemaker/skills",
+    "isUniversal": false,
+    "homeDir": ".codemaker"
+  },
+  {
+    "name": "codex",
+    "displayName": "Codex",
+    "skillsDir": ".agents/skills",
+    "isUniversal": true,
+    "homeDir": ".codex"
+  },
+  {
+    "name": "command-code",
+    "displayName": "Command Code",
+    "skillsDir": ".commandcode/skills",
+    "isUniversal": false,
+    "homeDir": ".commandcode"
+  },
+  {
+    "name": "continue",
+    "displayName": "Continue",
+    "skillsDir": ".continue/skills",
+    "isUniversal": false,
+    "homeDir": ".continue"
+  },
+  {
+    "name": "cortex",
+    "displayName": "Cortex Code",
+    "skillsDir": ".cortex/skills",
+    "isUniversal": false,
+    "homeDir": ".snowflake/cortex"
+  },
+  {
+    "name": "crush",
+    "displayName": "Crush",
+    "skillsDir": ".crush/skills",
+    "isUniversal": false,
+    "homeDir": ".config/crush"
+  },
+  {
+    "name": "cursor",
+    "displayName": "Cursor",
+    "skillsDir": ".agents/skills",
+    "isUniversal": true,
+    "homeDir": ".cursor"
+  },
+  {
+    "name": "deepagents",
+    "displayName": "Deep Agents",
+    "skillsDir": ".agents/skills",
+    "isUniversal": true,
+    "homeDir": ".deepagents"
+  },
+  {
+    "name": "devin",
+    "displayName": "Devin for Terminal",
+    "skillsDir": ".devin/skills",
+    "isUniversal": false,
+    "homeDir": ".config/devin"
+  },
+  {
+    "name": "dexto",
+    "displayName": "Dexto",
+    "skillsDir": ".agents/skills",
+    "isUniversal": true,
+    "homeDir": ".dexto"
+  },
+  {
+    "name": "droid",
+    "displayName": "Droid",
+    "skillsDir": ".factory/skills",
+    "isUniversal": false,
+    "homeDir": ".factory"
+  },
+  {
+    "name": "firebender",
+    "displayName": "Firebender",
+    "skillsDir": ".agents/skills",
+    "isUniversal": true,
+    "homeDir": ".firebender"
+  },
+  {
+    "name": "forgecode",
+    "displayName": "ForgeCode",
+    "skillsDir": ".forge/skills",
+    "isUniversal": false,
+    "homeDir": ".forge"
+  },
+  {
+    "name": "gemini-cli",
+    "displayName": "Gemini CLI",
+    "skillsDir": ".agents/skills",
+    "isUniversal": true,
+    "homeDir": ".gemini"
+  },
+  {
+    "name": "github-copilot",
+    "displayName": "GitHub Copilot",
+    "skillsDir": ".agents/skills",
+    "isUniversal": true,
+    "homeDir": ".copilot"
+  },
+  {
+    "name": "goose",
+    "displayName": "Goose",
+    "skillsDir": ".goose/skills",
+    "isUniversal": false,
+    "homeDir": ".config/goose"
+  },
+  {
+    "name": "hermes-agent",
+    "displayName": "Hermes Agent",
+    "skillsDir": ".hermes/skills",
+    "isUniversal": false,
+    "homeDir": ".hermes"
+  },
+  {
+    "name": "bob",
+    "displayName": "IBM Bob",
+    "skillsDir": ".bob/skills",
+    "isUniversal": false,
+    "homeDir": ".bob"
+  },
+  {
+    "name": "iflow-cli",
+    "displayName": "iFlow CLI",
+    "skillsDir": ".iflow/skills",
+    "isUniversal": false,
+    "homeDir": ".iflow"
+  },
+  {
+    "name": "junie",
+    "displayName": "Junie",
+    "skillsDir": ".junie/skills",
+    "isUniversal": false,
+    "homeDir": ".junie"
+  },
+  {
+    "name": "kilo",
+    "displayName": "Kilo Code",
+    "skillsDir": ".kilocode/skills",
+    "isUniversal": false,
+    "homeDir": ".kilocode"
+  },
+  {
+    "name": "kimi-cli",
+    "displayName": "Kimi Code CLI",
+    "skillsDir": ".agents/skills",
+    "isUniversal": true,
+    "homeDir": ".kimi"
+  },
+  {
+    "name": "kiro-cli",
+    "displayName": "Kiro CLI",
+    "skillsDir": ".kiro/skills",
+    "isUniversal": false,
+    "homeDir": ".kiro"
+  },
+  {
+    "name": "kode",
+    "displayName": "Kode",
+    "skillsDir": ".kode/skills",
+    "isUniversal": false,
+    "homeDir": ".kode"
+  },
+  {
+    "name": "mcpjam",
+    "displayName": "MCPJam",
+    "skillsDir": ".mcpjam/skills",
+    "isUniversal": false,
+    "homeDir": ".mcpjam"
+  },
+  {
+    "name": "mistral-vibe",
+    "displayName": "Mistral Vibe",
+    "skillsDir": ".vibe/skills",
+    "isUniversal": false,
+    "homeDir": ".vibe"
+  },
+  {
+    "name": "mux",
+    "displayName": "Mux",
+    "skillsDir": ".mux/skills",
+    "isUniversal": false,
+    "homeDir": ".mux"
+  },
+  {
+    "name": "neovate",
+    "displayName": "Neovate",
+    "skillsDir": ".neovate/skills",
+    "isUniversal": false,
+    "homeDir": ".neovate"
+  },
+  {
+    "name": "openclaw",
+    "displayName": "OpenClaw",
+    "skillsDir": "skills",
+    "isUniversal": false,
+    "homeDir": ".openclaw"
+  },
+  {
+    "name": "opencode",
+    "displayName": "OpenCode",
+    "skillsDir": ".agents/skills",
+    "isUniversal": true,
+    "homeDir": ".config/opencode"
+  },
+  {
+    "name": "openhands",
+    "displayName": "OpenHands",
+    "skillsDir": ".openhands/skills",
+    "isUniversal": false,
+    "homeDir": ".openhands"
+  },
+  {
+    "name": "pi",
+    "displayName": "Pi",
+    "skillsDir": ".pi/skills",
+    "isUniversal": false,
+    "homeDir": ".pi/agent"
+  },
+  {
+    "name": "pochi",
+    "displayName": "Pochi",
+    "skillsDir": ".pochi/skills",
+    "isUniversal": false,
+    "homeDir": ".pochi"
+  },
+  {
+    "name": "qoder",
+    "displayName": "Qoder",
+    "skillsDir": ".qoder/skills",
+    "isUniversal": false,
+    "homeDir": ".qoder"
+  },
+  {
+    "name": "qwen-code",
+    "displayName": "Qwen Code",
+    "skillsDir": ".qwen/skills",
+    "isUniversal": false,
+    "homeDir": ".qwen"
+  },
+  {
+    "name": "replit",
+    "displayName": "Replit",
+    "skillsDir": ".agents/skills",
+    "isUniversal": true,
+    "homeDir": ".replit"
+  },
+  {
+    "name": "roo",
+    "displayName": "Roo Code",
+    "skillsDir": ".roo/skills",
+    "isUniversal": false,
+    "homeDir": ".roo"
+  },
+  {
+    "name": "rovodev",
+    "displayName": "Rovo Dev",
+    "skillsDir": ".rovodev/skills",
+    "isUniversal": false,
+    "homeDir": ".rovodev"
+  },
+  {
+    "name": "tabnine-cli",
+    "displayName": "Tabnine CLI",
+    "skillsDir": ".tabnine/agent/skills",
+    "isUniversal": false,
+    "homeDir": ".tabnine"
+  },
+  {
+    "name": "trae",
+    "displayName": "Trae",
+    "skillsDir": ".trae/skills",
+    "isUniversal": false,
+    "homeDir": ".trae"
+  },
+  {
+    "name": "trae-cn",
+    "displayName": "Trae CN",
+    "skillsDir": ".trae/skills",
+    "isUniversal": false,
+    "homeDir": ".trae-cn"
+  },
+  {
+    "name": "warp",
+    "displayName": "Warp",
+    "skillsDir": ".agents/skills",
+    "isUniversal": true,
+    "homeDir": ".warp"
+  },
+  {
+    "name": "windsurf",
+    "displayName": "Windsurf",
+    "skillsDir": ".windsurf/skills",
+    "isUniversal": false,
+    "homeDir": ".codeium/windsurf"
+  },
+  {
+    "name": "zencoder",
+    "displayName": "Zencoder",
+    "skillsDir": ".zencoder/skills",
+    "isUniversal": false,
+    "homeDir": ".zencoder"
+  }
+]

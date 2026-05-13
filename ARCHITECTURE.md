@@ -82,12 +82,17 @@ manifest entry becomes an orphan and the skill goes back to `ext`.
 
 ```
 cortex/
+├── install.sh                  ← one-shot installer that registers the `cortex` alias
 ├── scripts/
-│   ├── cortex.sh             ← single entry point; the `cortex` alias points here
+│   ├── cortex.sh              ← single entry point; the `cortex` alias points here
+│   ├── refresh-agents.sh      ← regenerates lib/agents.json from skills.sh source
 │   └── lib/
 │       ├── style.sh           ← ANSI colours, banner, table formatters
 │       ├── manifest.sh        ← manifest paths + read/write/upsert
-│       └── source.sh          ← provider detection + before/after snapshots
+│       ├── source.sh          ← provider detection + skills.sh snapshots
+│       ├── agents.sh          ← agent registry helpers (read agents.json)
+│       ├── agents.json        ← embedded copy of the skills.sh agent registry
+│       └── extract-agents.mjs ← Node parser invoked by refresh-agents.sh
 ├── profiles/<name>.json       ← versioned profile files
 ├── skills/<name>/             ← published NETCASE skills (independent of the CLI)
 ├── README.md                  ← end-user docs
@@ -103,10 +108,13 @@ shell, which is handy for poking at `resolve_source` while developing.
 
 | File | Lines | Owns |
 |---|---|---|
-| `scripts/cortex.sh` | ~360 | Dispatcher, `cmd_*` functions, the install loop, agent-detect maps. |
-| `scripts/lib/style.sh` | ~140 | All colour / banner / table primitives. The only file that reads `NO_COLOR`. |
+| `scripts/cortex.sh` | ~430 | Dispatcher and `cmd_*` functions, including the install loop. |
+| `scripts/lib/style.sh` | ~145 | All colour / banner / table primitives. The only file that reads `NO_COLOR`. |
 | `scripts/lib/manifest.sh` | ~70 | Manifest I/O. The only file that writes to `~/.cortex/` or `<cwd>/.cortex.json`. |
-| `scripts/lib/source.sh` | ~80 | `resolve_source` and snapshot helpers. The only file that calls `npx skills list`. |
+| `scripts/lib/source.sh` | ~80 | `resolve_source` and snapshot helpers. The only file that calls `npx skills list` / `skills add --list`. |
+| `scripts/lib/agents.sh` | ~50 | Reads `agents.json`, exposes detected/installed/lookup helpers. |
+| `scripts/lib/agents.json` | (data) | Embedded snapshot of skills.sh's agent registry — name, displayName, skillsDir, isUniversal, homeDir. |
+| `scripts/lib/extract-agents.mjs` | ~75 | Node parser; reads skills.sh `cli.mjs` and writes `agents.json`. Run via `scripts/refresh-agents.sh`. |
 
 The "only file that does X" property is intentional — it means a change
 to manifest format, or a new provider, has one place to touch.
@@ -117,20 +125,20 @@ to manifest format, or a new provider, has one place to touch.
 
 This is the most useful read on a first contact: trace one command end-to-end.
 
-1. **Dispatch** ([cortex.sh:403-415](scripts/cortex.sh#L403-L415)). The
+1. **Dispatch** ([cortex.sh:456-468](scripts/cortex.sh#L456-L468)). The
    `case` on `${1:-}` matches `install`, shifts, calls `cmd_install`
    with the rest of the args.
 
-2. **`cmd_install`** ([cortex.sh:197-234](scripts/cortex.sh#L197-L234)).
+2. **`cmd_install`** ([cortex.sh:247-297](scripts/cortex.sh#L247-L297)).
    - `need_jq` / `need_npx` — abort early if missing.
    - `print_header "install"` — banner.
    - Resolve the profile name (or `pick_profile` interactively).
    - `jq -e .` against `profiles/<profile>.json` — fail fast on bad JSON.
    - Loop over each element of `.sources[]`, calling `install_one_source`.
 
-3. **`install_one_source`** ([cortex.sh](scripts/cortex.sh)). For each entry:
+3. **`install_one_source`** ([cortex.sh:102-245](scripts/cortex.sh#L102-L245)). For each entry:
    - **Validate scope** (global / project / else skip).
-   - **`resolve_source`** ([lib/source.sh:resolve_source](scripts/lib/source.sh#L15-L57)) — pattern-match the `source` string to `(provider, resolved_path_or_url)`. See §6.1.
+   - **`resolve_source`** ([lib/source.sh:resolve_source](scripts/lib/source.sh#L16-L58)) — pattern-match the `source` string to `(provider, resolved_path_or_url)`. See §6.1.
    - **Build CLI args**. `--skill` and `-a` are variadic in the skills
      CLI, so order matters: `-a …` first, `--skill …` last.
    - **Decide which names belong to this source** (§6.2): explicit
@@ -141,7 +149,7 @@ This is the most useful read on a first contact: trace one command end-to-end.
      file (npm is quirky when stdin is a TTY-less file).
    - **`snapshot_for_scope` (after)** — JSON array of skills the CLI
      reports for this scope after the install.
-   - **`manifest_upsert`** ([lib/manifest.sh:manifest_upsert](scripts/lib/manifest.sh#L42-L62))
+   - **`manifest_upsert`** ([lib/manifest.sh:manifest_upsert](scripts/lib/manifest.sh#L44-L64))
      for every expected name that the post-install snapshot confirms.
      Names not in `after` are dropped (the install failed for them).
 
@@ -153,10 +161,10 @@ That's the entire install path. About 300 lines of bash, end to end.
 
 ## 4 · `cortex status` walkthrough
 
-1. **`cmd_status`** ([cortex.sh:326-335](scripts/cortex.sh#L326-L335)).
+1. **`cmd_status`** ([cortex.sh:401-410](scripts/cortex.sh#L401-L410)).
    Calls `print_global` and `print_folders`.
 
-2. **`print_global`** ([cortex.sh:258-283](scripts/cortex.sh#L258-L283)).
+2. **`print_global`** ([cortex.sh:301-360](scripts/cortex.sh#L301-L360)).
    - `npx skills list --global --json` — every globally installed skill,
      each with its `agents` list.
    - `read_manifest "$GLOBAL_MANIFEST"` — the `.skills` object of the
@@ -165,7 +173,7 @@ That's the entire install path. About 300 lines of bash, end to end.
      is derived inline: `if $mani[name] then "cortex" else "ext" end`.
    - The TSV is piped through `fmt_table → style_name_column → style_by_column`.
 
-3. **`print_folders`** ([cortex.sh:288-324](scripts/cortex.sh#L288-L324)).
+3. **`print_folders`** ([cortex.sh:365-399](scripts/cortex.sh#L365-L399)).
    Same idea, but groups by project root. For each `<root>/.claude/skills/`
    or `<root>/skills/` discovered (excluding agent home dirs like
    `~/.claude/`), it reads the per-project manifest at
@@ -217,11 +225,9 @@ Per-source:
       "provider": "github",
       "scope":    "global",
       "profile":  "system",
-      "agents":            ["Claude Code", "Continue", "Qwen Code"],
-      "universal_agents":  ["GitHub Copilot", "Amp", "Antigravity", "Cline", "Codex"],
-      "universal_more":    8,                  // additional unnamed agents the skills CLI didn't list
-      "first_seen":        "2026-05-13T18:19:43Z",   // write-once
-      "updated_at":        "2026-05-13T19:02:11Z"    // refreshed every run
+      "agents":     ["Claude Code", "Continue", "Qwen Code"],
+      "first_seen": "2026-05-13T18:19:43Z",   // write-once
+      "updated_at": "2026-05-13T19:02:11Z"    // refreshed every run
     }
   }
 }
@@ -238,7 +244,7 @@ Per-source:
 
 ## 6 · Algorithms
 
-### 6.1 Provider detection ([lib/source.sh:resolve_source](scripts/lib/source.sh#L15-L57))
+### 6.1 Provider detection ([lib/source.sh:resolve_source](scripts/lib/source.sh#L16-L58))
 
 Pure pattern match — no network, no `git ls-remote`. The user's choice of
 prefix tells us the provider:
@@ -267,7 +273,7 @@ else:
     track list_source_skills(source)    ← ask the CLI via --list
 ```
 
-`list_source_skills` ([lib/source.sh](scripts/lib/source.sh#L70-L77))
+`list_source_skills` ([lib/source.sh](scripts/lib/source.sh#L65-L70))
 runs `npx skills add <source> --list`, strips ANSI escapes from the
 output, and matches the `│    <name>` lines the CLI uses to list each
 skill in the source.
@@ -287,7 +293,7 @@ entry. Failed installs never appear in the manifest.
 ### 6.3 Manifest write-once fields
 
 `first_seen` must not change on re-runs. The
-[manifest_upsert](scripts/lib/manifest.sh#L42-L62) `jq` filter:
+[manifest_upsert](scripts/lib/manifest.sh#L44-L64) `jq` filter:
 
 ```jq
 .skills[$name] = (
@@ -308,66 +314,76 @@ earlier versions of cortex. It's harmless on fresh manifests.
 
 ### 6.4 BY column derivation (in `print_global` / `print_folders`)
 
-`coretex status` emits one row per skill/agent pair, plus extra rows for
-agents that use the canonical store directly. Three possible BY values:
+`cortex status` emits one row per skill/agent pair, plus extra
+universal-mode rows derived from the agent registry (see §6.5). Three
+possible BY values:
 
 ```jq
-# Symlink/per-agent rows (one per entry in $skill.agents):
+# Per-agent symlink rows (one per entry in $skill.agents from skills list):
 if $manifest[skill_name] then "cortex" else "ext" end
 
-# Universal rows (one per entry in $manifest[skill_name].universal_agents):
-"universal"
-
-# Optional "(+N more)" row when $manifest[skill_name].universal_more > 0
+# Universal rows (one per installed universal-mode agent NOT already
+# listed in $skill.agents; only emitted for cortex-managed skills):
 "universal"
 ```
 
-The path column for universal rows is always `~/.agents/skills/<name>` —
-the canonical store every universal-mode agent reads from.
+Path column:
+- symlink rows → `~/<agent.skillsDir>/<skill>` (looked up in the registry)
+- universal rows → `~/.agents/skills/<skill>` (the canonical store)
 
 The relevant manifest depends on the skill's path: global manifest for
 skills under `~/.agents/` or `~/.<agent>/`; project manifest at
 `<root>/.cortex.json` for any other location.
 
-### 6.5 Parsing universal-agent info from the install output
+### 6.5 Agent registry (`scripts/lib/agents.json`)
 
-The `skills list --json` API doesn't tell us which agents have
-"universal" access to a skill (i.e. read from `~/.agents/skills/`
-directly, without a per-agent symlink). The info is only available in
-the human-formatted output of `skills add`, which looks like:
+skills.sh hardcodes ~50 agents in its bundled CLI, each with a
+`detectInstalled()` body that does one or two `existsSync()` checks
+against a home directory. We embed a normalised copy of that registry
+so cortex can answer the same questions (is this agent installed? is
+it universal-mode?) without parsing skills CLI output.
 
-```
-│  ~/.agents/skills/netcase-bbq                                            │
-│    universal: Antigravity, Cline, Gemini CLI, GitHub Copilot, Amp +8 more │
-│    symlink → Claude Code, Continue                                       │
-```
+The registry is generated by `scripts/refresh-agents.sh`, which:
 
-[`parse_install_capture`](scripts/lib/source.sh#L72-L99) reads a captured
-copy of that output, strips ANSI escapes, and emits one TSV row per
-skill: `<name>\t<universal_csv>\t<universal_more>`. The skill name is
-matched off the `~/.agents/skills/<name>` line; the `universal:` line
-following it provides the CSV and an optional `+N more` suffix that we
-store as the `universal_more` integer.
+1. Locates `~/.npm/_npx/*/node_modules/skills/dist/cli.mjs` (warms the
+   cache via `npx -y skills --version` if missing).
+2. Hands the path to `scripts/lib/extract-agents.mjs`, a small Node
+   parser that pulls each `<name>: { displayName, skillsDir, detectInstalled }`
+   block out of the bundled JS and emits a JSON record per agent:
+   `{ name, displayName, skillsDir, isUniversal, homeDir }`.
+3. Writes `scripts/lib/agents.json` (sorted by displayName for stable
+   diffs).
 
-If the output doesn't contain an "Installation Summary" block (e.g. when
-nothing changed on disk), the function emits nothing — `manifest_upsert`
-then preserves any previously recorded `universal_agents` /
-`universal_more` for that skill rather than blanking them.
+The `homeDir` field is a `$HOME`-relative representative path,
+derived best-effort from the first `existsSync(...)` call in
+`detectInstalled`. Variables that appear inside the body
+(`claudeHome`, `codexHome`, `configHome`, `vibeHome`) are resolved via
+a small map back to their default $HOME-relative path. `isUniversal`
+mirrors skills.sh's own definition: `skillsDir === ".agents/skills"`.
+
+[`scripts/lib/agents.sh`](scripts/lib/agents.sh) exposes:
+
+- `agents_all_json` — full registry as JSON array.
+- `agents_installed_names` — names of agents whose home dir exists.
+- `agents_installed_json` — same, as a JSON array.
+- `agent_lookup <name> <field>` — single-field lookup.
+
+Refresh policy: rerun `scripts/refresh-agents.sh` after a skills.sh
+upgrade. The parser sanity-checks the count and refuses to overwrite
+if fewer than 20 agents are extracted.
 
 ### 6.6 Verbose mode (`-v` / `--verbose`)
 
 `install_one_source` always captures `skills add` output to a temp file.
 In default mode the capture is hidden; in verbose mode it's also `tee`'d
-to the terminal. The captured copy is then parsed for universal-agent
-info regardless of mode (capturing is free, only display differs).
+to the terminal. The capture exists only to surface error context — on
+non-zero exit it's dumped to stderr.
 
-In default mode, after a successful install, a compact summary is
-printed: skill names, symlink agents, named universal agents, `(+N more)`
-unnamed. In verbose mode the summary is suppressed because the full CLI
-output is already on screen.
-
-Either mode dumps the captured output to stderr if `skills add` exits
-non-zero. There's no way to silently lose error context.
+In default mode a compact summary is printed: skill names, the symlink
+agents that `skills list --json` reports, and the installed
+universal-mode agents from the registry (`agents_installed_json`
+intersected with `isUniversal`). In verbose mode the summary is
+suppressed because the full CLI output is already on screen.
 
 ---
 
@@ -480,12 +496,12 @@ install loop alongside the other commands.
 
 | Invariant | Where it's enforced | Why it matters |
 |---|---|---|
-| `first_seen` never changes after first write | [lib/manifest.sh:manifest_upsert](scripts/lib/manifest.sh#L42-L62) | The audit trail would lie if it could flip. |
-| Manifest only contains skills referenced by a profile (no `adopt` fallback) | [cortex.sh install_one_source](scripts/cortex.sh#L94-L195) + [lib/source.sh:list_source_skills](scripts/lib/source.sh#L70-L77) | Phantom manifest entries were the original cause of the `adopt` confusion; replaced by direct `skills add --list` query. |
-| Manifest is only written for skills the post-install snapshot confirms | [cortex.sh:183-186](scripts/cortex.sh#L183-L186) | Failed installs (auth, network, missing `SKILL.md`) leave no record. |
+| `first_seen` never changes after first write | [lib/manifest.sh:manifest_upsert](scripts/lib/manifest.sh#L44-L64) | The audit trail would lie if it could flip. |
+| Manifest only contains skills referenced by a profile (no `adopt` fallback) | [cortex.sh install_one_source](scripts/cortex.sh#L102-L245) + [lib/source.sh:list_source_skills](scripts/lib/source.sh#L65-L70) | Phantom manifest entries were the original cause of the `adopt` confusion; replaced by direct `skills add --list` query. |
+| Manifest is only written for skills the post-install snapshot confirms | [cortex.sh:218-221](scripts/cortex.sh#L218-L221) | Failed installs (auth, network, missing `SKILL.md`) leave no record. |
 | Project manifest lives at `$PWD`, not the profile's directory | [lib/manifest.sh:manifest_path_for](scripts/lib/manifest.sh#L21-L26) | A profile is portable; the manifest belongs to the project. |
-| `provider` is detected from the source string, never user-supplied | [lib/source.sh:resolve_source](scripts/lib/source.sh#L15-L57) | Removes a whole category of typo errors. |
-| `cortex status` is read-only | [cortex.sh print_global / print_folders](scripts/cortex.sh#L258-L324) | Inspecting state should never accidentally change it. |
+| `provider` is detected from the source string, never user-supplied | [lib/source.sh:resolve_source](scripts/lib/source.sh#L16-L58) | Removes a whole category of typo errors. |
+| `cortex status` is read-only | [cortex.sh print_global / print_folders](scripts/cortex.sh#L301-L399) | Inspecting state should never accidentally change it. |
 
 ### Edge cases worth knowing
 
@@ -542,7 +558,7 @@ elements otherwise. See the `agent_args` / `skill_args` handling in
 
 ### Add a new provider
 
-1. Add a `case` arm in [lib/source.sh:resolve_source](scripts/lib/source.sh#L15-L57).
+1. Add a `case` arm in [lib/source.sh:resolve_source](scripts/lib/source.sh#L16-L58).
    Set `provider` to the new label, `resolved` to whatever string
    `skills add` will accept.
 2. If `skills add` doesn't understand the format, handle the

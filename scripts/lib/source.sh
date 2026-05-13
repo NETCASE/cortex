@@ -5,7 +5,6 @@
 # Exposes:
 #   resolve_source <src_json>     — parse one source object, echo "<provider>\t<resolved>"
 #   list_source_skills <resolved> — query the skills CLI for every skill name in a source
-#   parse_install_capture <file>  — extract per-skill universal-agent info from captured install output
 #   snapshot_global               — JSON array of globally installed skills
 #   snapshot_project              — JSON array of skills under $PWD
 #   snapshot_for_scope <scope>    — dispatcher: global → snapshot_global, etc.
@@ -68,44 +67,6 @@ list_source_skills() {
   npx -y skills add "$resolved" --list </dev/null 2>/dev/null \
     | sed 's/\x1b\[[0-9;]*m//g' \
     | awk '/^│    [a-z][a-z0-9_-]+$/ { print $2 }'
-}
-
-# Parse a captured `skills add` log and emit TSV per skill mentioned in an
-# "Installation Summary" block:
-#   <skill_name>\t<universal_agents_csv>\t<universal_more_count>
-# Skills that don't have a `universal:` line in the capture get no row (so
-# the caller's manifest write keeps any previously recorded universal info).
-# Robust to ANSI escapes; only the first occurrence per skill is emitted
-# (the second appears under "Installed N skills" and has the same content).
-parse_install_capture() {
-  local captured="$1"
-  [[ -f "$captured" ]] || return 0
-  sed 's/\x1b\[[0-9;]*m//g' "$captured" | awk '
-    /^│ +~\/\.agents\/skills\// {
-      line = $0
-      sub(/^│ +~\/\.agents\/skills\//, "", line)
-      sub(/ +│? *$/, "", line)
-      if (seen[line]) { cur = ""; next }
-      cur = line
-      next
-    }
-    cur != "" && /^│ +universal:/ {
-      line = $0
-      sub(/^│ +universal: */, "", line)
-      sub(/ *│? *$/, "", line)
-      more = 0
-      if (line ~ /\+[0-9]+ more$/) {
-        more_str = line
-        sub(/.*\+/, "", more_str)
-        sub(/ more$/, "", more_str)
-        more = more_str + 0
-        sub(/ *\+[0-9]+ more$/, "", line)
-      }
-      seen[cur] = 1
-      print cur "\t" line "\t" more
-      cur = ""
-    }
-  '
 }
 
 snapshot_global() {
