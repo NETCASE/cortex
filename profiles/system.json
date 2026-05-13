@@ -1,0 +1,8 @@
+{
+  "name": "system",
+  "description": "Base skills installed on every machine.",
+  "sources": [
+    { "source": "NETCASE/cortex",   "scope": "global" },
+    { "source": "anthropics/skills", "scope": "global", "skills": ["skill-creator"] }
+  ]
+}

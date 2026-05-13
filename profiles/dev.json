@@ -1,0 +1,9 @@
+{
+  "name": "dev",
+  "description": "Software development skills (Payload, Next.js, Matt Pocock).",
+  "sources": [
+    { "source": "payloadcms/payload",      "scope": "project" },
+    { "source": "vercel-labs/next-skills", "scope": "project" },
+    { "source": "mattpocock/skills",       "scope": "project" }
+  ]
+}
