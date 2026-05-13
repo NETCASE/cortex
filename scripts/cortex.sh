@@ -2,8 +2,9 @@
 # cortex — CLI for the NETCASE skills repo.
 #
 # Usage:
-#   cortex install [<profile>]   install all sources in profiles/<profile>.json
-#                                 (no argument → pick from a list)
+#   cortex install [-v] [<profile>]   install all sources in profiles/<profile>.json
+#                                      (no <profile> → pick from a list;
+#                                       -v / --verbose → stream skills.sh output live)
 #   cortex status                list installed skills (BY: cortex / ext)
 #   cortex detect-agents         agents auto-detect would target
 #   cortex update                update all installed skills   (coming soon)
@@ -48,10 +49,10 @@ usage() {
   cat <<EOF
   cortex — NETCASE skills CLI
 
-    cortex install [<profile>]   install all sources from profiles/<profile>.json
-                                  (no <profile> → choose from a list)
-    cortex status                list installed skills (global, then folder),
-                                  with BY column: cortex / ext
+    cortex install [-v] [<profile>]  install all sources from profiles/<profile>.json
+                                     (-v / --verbose → stream skills.sh output live)
+    cortex status                    list installed skills (global, then folder),
+                                     with BY column: cortex / universal / ext
     cortex detect-agents         show which agents auto-detect would target
     cortex update                update all installed skills        (coming soon)
     cortex remove                remove installed skills            (coming soon)
@@ -86,19 +87,27 @@ pick_profile() {
   echo "${profiles[$((choice - 1))]}"
 }
 
-# install_one_source <src_json> <profile_name>
+# install_one_source <src_json> <profile_name> <verbose:0|1>
 #
 # Process one entry from a profile's `sources` array. Resolves the source,
 # determines the authoritative skill list (explicit `skills` array or
-# `skills add --list`), runs the install, then writes a manifest entry for
-# every name the post-install snapshot confirms.
+# `skills add --list`), runs the install, parses the captured output for
+# universal-agent info, then writes a manifest entry for every name the
+# post-install snapshot confirms.
+#
+# verbose=0: skills.sh output is hidden; cortex prints a compact summary.
+# verbose=1: skills.sh output is streamed live (same as the captured copy).
+# In either mode, a non-zero exit from `skills add` dumps the captured
+# output to stderr so the user can see what went wrong.
 install_one_source() {
-  local src="$1" profile="$2"
+  local src="$1" profile="$2" verbose="${3:-0}"
   local scope provider source_str resolved_line
   local skills_json agents_json scope_flag
-  local after manifest
+  local after manifest captured exit_code
   local skill_args agent_args desc tracked names_to_track
   local name actual_agents
+  local parsed_universal universal_csv universal_more universal_agents_json
+  local installed_names all_symlink all_universal max_universal_more
 
   scope="$(jq -r '.scope // "global"' <<<"$src")"
   case "$scope" in
@@ -106,7 +115,6 @@ install_one_source() {
     *) echo "  ! Unknown scope '$scope' — skipping: $src" >&2; return ;;
   esac
 
-  # Provider → effective source string passed to `skills add`.
   resolved_line="$(resolve_source "$src")" || return
   provider="${resolved_line%%	*}"
   source_str="${resolved_line#*	}"
@@ -117,9 +125,9 @@ install_one_source() {
   scope_flag=""
   [[ "$scope" == "global" ]] && scope_flag="-g"
 
-  # Build skill / agent CLI arg arrays.
-  # `--skill` and `-a` are variadic → put `--skill` LAST so it can't swallow
-  # other flags; `-a` must come BEFORE `--skill` so it stops at the boundary.
+  # Build skill / agent CLI arg arrays. `--skill` and `-a` are variadic in
+  # the skills CLI → put `--skill` LAST so it can't swallow other flags;
+  # `-a` must come BEFORE `--skill` so it stops at the boundary.
   skill_args=()
   agent_args=()
   if [[ "$(jq 'length' <<<"$skills_json")" -gt 0 ]]; then
@@ -146,11 +154,9 @@ install_one_source() {
   fi
   echo "→ $source_str ($scope)$desc"
 
-  # Decide which skill names belong to this source.
-  # 1. Explicit `skills` array → trust it.
-  # 2. Otherwise ask the skills CLI via --list. If that returns nothing
-  #    (offline, network failure, transient error), skip with a warning
-  #    — we'd rather under-record than write phantom manifest entries.
+  # Decide which skill names belong to this source. Explicit `skills` array
+  # wins; otherwise ask `skills add --list`. Empty result → warn and skip
+  # manifest tracking (we'd rather under-record than write phantom entries).
   names_to_track=()
   if [[ "$(jq 'length' <<<"$skills_json")" -gt 0 ]]; then
     while IFS= read -r n; do names_to_track+=("$n"); done < <(jq -r '.[]' <<<"$skills_json")
@@ -163,39 +169,118 @@ install_one_source() {
     fi
   fi
 
-  # </dev/null prevents npx from consuming the profile file via stdin.
-  npx -y skills add "$source_str" $scope_flag -y \
-    ${agent_args[@]+"${agent_args[@]}"} \
-    ${skill_args[@]+"${skill_args[@]}"} </dev/null
+  # Run the install. Capture stdout+stderr to a temp file. In verbose mode
+  # also tee to the terminal for live progress.
+  captured="$(mktemp)"
+  if [[ "$verbose" == 1 ]]; then
+    npx -y skills add "$source_str" $scope_flag -y \
+      ${agent_args[@]+"${agent_args[@]}"} \
+      ${skill_args[@]+"${skill_args[@]}"} </dev/null 2>&1 | tee "$captured"
+    exit_code=${PIPESTATUS[0]}
+  else
+    npx -y skills add "$source_str" $scope_flag -y \
+      ${agent_args[@]+"${agent_args[@]}"} \
+      ${skill_args[@]+"${skill_args[@]}"} </dev/null >"$captured" 2>&1
+    exit_code=$?
+  fi
+
+  if [[ $exit_code -ne 0 ]]; then
+    echo "  ✗ skills add failed (exit $exit_code) — full output:" >&2
+    cat "$captured" >&2
+    rm -f "$captured"
+    return
+  fi
 
   after="$(snapshot_for_scope "$scope")"
 
+  # Parse universal-agent info out of the captured Installation Summary block.
+  # parsed_universal becomes { "<skill>": { universal_csv, universal_more } }.
+  parsed_universal="$(parse_install_capture "$captured" | jq -Rs '
+    split("\n") | map(select(length > 0)) | map(split("\t")) |
+    map({ key: .[0], value: { csv: .[1], more: (.[2] | tonumber) } }) |
+    from_entries
+  ')"
+
   manifest="$(manifest_path_for "$scope")"
   manifest_init "$manifest"
+
+  # Accumulators for the compact summary line.
+  installed_names=()
+  all_symlink='[]'
+  all_universal='[]'
+  max_universal_more=0
 
   tracked=0
   for name in "${names_to_track[@]}"; do
     [[ -z "$name" ]] && continue
     actual_agents="$(jq -c --arg n "$name" \
       'map(select(.name == $n)) | (.[0].agents // [])' <<<"$after")"
-    # If the skill isn't in `after`, the install failed for this name — skip.
     if [[ -z "$actual_agents" || "$actual_agents" == "null" ]] || \
        [[ "$(jq --arg n "$name" 'any(.name == $n)' <<<"$after")" != "true" ]]; then
       continue
     fi
-    manifest_upsert "$manifest" "$name" "$provider" "$source_str" "$scope" "$profile" "$actual_agents"
+
+    universal_csv="$(jq -r --arg n "$name" '.[$n].csv // ""' <<<"$parsed_universal")"
+    universal_more="$(jq -r --arg n "$name" '.[$n].more // 0' <<<"$parsed_universal")"
+    if [[ -n "$universal_csv" ]]; then
+      universal_agents_json="$(jq -Rc 'split(", ")' <<<"$universal_csv")"
+    else
+      universal_agents_json='[]'
+    fi
+
+    manifest_upsert "$manifest" "$name" "$provider" "$source_str" "$scope" "$profile" \
+      "$actual_agents" "$universal_agents_json" "$universal_more"
     tracked=$((tracked + 1))
+    installed_names+=("$name")
+
+    all_symlink="$(jq -c --argjson new "$actual_agents" '. + $new | unique' <<<"$all_symlink")"
+    all_universal="$(jq -c --argjson new "$universal_agents_json" '. + $new | unique' <<<"$all_universal")"
+    if [[ "$universal_more" -gt "$max_universal_more" ]]; then
+      max_universal_more=$universal_more
+    fi
   done
+
+  # Compact summary (non-verbose only — in verbose the full CLI output is
+  # already on screen).
+  if [[ "$verbose" != 1 && $tracked -gt 0 ]]; then
+    local skills_csv sym_csv uni_csv line
+    skills_csv="$(IFS=,; printf '%s' "${installed_names[*]}" | sed 's/,/, /g')"
+    sym_csv="$(jq -r 'join(", ")' <<<"$all_symlink")"
+    uni_csv="$(jq -r 'join(", ")' <<<"$all_universal")"
+    echo "  ✓ installed $tracked skill(s): $skills_csv"
+    line=""
+    [[ -n "$sym_csv" ]] && line+="symlink: $sym_csv"
+    if [[ -n "$uni_csv" || $max_universal_more -gt 0 ]]; then
+      [[ -n "$line" ]] && line+=" · "
+      line+="universal: $uni_csv"
+      [[ $max_universal_more -gt 0 ]] && line+=" (+$max_universal_more more)"
+    fi
+    [[ -n "$line" ]] && echo "    $line"
+  fi
 
   echo "  tracked $tracked skill(s) in $(echo "$manifest" | sed "s|^$HOME|~|")"
   echo
+  rm -f "$captured"
 }
 
 cmd_install() {
   need_jq
   need_npx
+
+  # Argument parsing: -v / --verbose accepted anywhere before the profile name.
+  local verbose=0
+  local positional=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -v|--verbose) verbose=1; shift ;;
+      --) shift; while [[ $# -gt 0 ]]; do positional+=("$1"); shift; done ;;
+      -*) echo "unknown flag: $1  (use -v / --verbose)" >&2; exit 1 ;;
+      *) positional+=("$1"); shift ;;
+    esac
+  done
+
   print_header "install"
-  local profile="${1:-}"
+  local profile="${positional[0]:-}"
   if [[ -z "$profile" ]]; then
     profile="$(pick_profile)"
   fi
@@ -209,14 +294,14 @@ cmd_install() {
     exit 1
   }
 
-  echo "Installing skills from profile: $profile"
+  echo "Installing skills from profile: $profile$([[ $verbose == 1 ]] && echo "  (verbose)")"
   echo "Source: $profile_file"
   echo
 
   local count=0
   while IFS= read -r src; do
     [[ -z "$src" ]] && continue
-    install_one_source "$src" "$profile"
+    install_one_source "$src" "$profile" "$verbose"
     count=$((count + 1))
   done < <(jq -c '.sources[]' "$profile_file")
 
@@ -266,14 +351,28 @@ print_global() {
       --argjson m "$AGENT_LINK_DIRS" \
       --arg home "$HOME" \
       --argjson mani "$manifest" '
-      .[] | . as $s | ($s.agents // []) as $ags |
-      ( if $mani[$s.name] then "cortex" else "ext" end ) as $by |
-      if ($ags | length) == 0
-      then [ $s.name, $by, "—", ($s.path | sub("^"+$home; "~")) ] | @tsv
-      else $ags[] | [ $s.name, $by, .,
-                      ( if $m[.] then "~/" + $m[.] + "/skills/" + $s.name
-                        else ($s.path | sub("^"+$home; "~")) end ) ] | @tsv
-      end'
+      .[] | . as $s |
+      ($s.agents // []) as $ags |
+      ($mani[$s.name].universal_agents // []) as $ugs |
+      ($mani[$s.name].universal_more // 0) as $umore |
+      (if $mani[$s.name] then "cortex" else "ext" end) as $by |
+      (
+        # Symlink rows (one per agent in `agents`, or a placeholder if empty).
+        if ($ags | length) == 0
+        then [ $s.name, $by, "—", ($s.path | sub("^"+$home; "~")) ]
+        else $ags[] | [ $s.name, $by, .,
+                        (if $m[.] then "~/" + $m[.] + "/skills/" + $s.name
+                         else ($s.path | sub("^"+$home; "~")) end) ]
+        end
+      ),
+      # Universal rows: one per named universal agent.
+      ($ugs[] | [ $s.name, "universal", ., "~/.agents/skills/" + $s.name ]),
+      # "+N more" row for unnamed universal agents.
+      (if $umore > 0
+       then [ $s.name, "universal", "(+\($umore) more)", "" ]
+       else empty
+       end)
+      | @tsv'
   } | fmt_table | style_name_column | style_by_column
 }
 
@@ -394,7 +493,7 @@ cmd_remove() {
 
 # ── dispatch ─────────────────────────────────────────────────────
 case "${1:-}" in
-  install)        shift; cmd_install "${1:-}" ;;
+  install)        shift; cmd_install "$@" ;;
   status)         cmd_status ;;
   detect-agents)  cmd_detect_agents ;;
   update)         cmd_update ;;

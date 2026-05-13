@@ -39,8 +39,8 @@ git add .cortex.json && git commit          # commit the manifest so others get 
 
 | | |
 |---|---|
-| `cortex install [<profile>]` | Install all sources from `profiles/<profile>.json`. No arg → numbered picker. |
-| `cortex status` | List installed skills. `BY` column: `cortex` (part of a profile, tracked) or `ext` (not in any manifest). |
+| `cortex install [-v] [<profile>]` | Install all sources from `profiles/<profile>.json`. No `<profile>` → numbered picker. Default prints a compact summary; `-v` / `--verbose` streams the full `skills.sh` output. |
+| `cortex status` | List installed skills. `BY` column: `cortex` (in manifest), `universal` (reachable via `~/.agents/skills/` without a per-agent symlink), or `ext` (not in any manifest). |
 | `cortex detect-agents` | Show which agents skills.sh auto-detect would target on this machine. |
 | `cortex --help` | Help. |
 

@@ -217,9 +217,11 @@ Per-source:
       "provider": "github",
       "scope":    "global",
       "profile":  "system",
-      "agents":   ["Claude Code", "Continue", "Qwen Code"],
-      "first_seen": "2026-05-13T18:19:43Z",   // write-once
-      "updated_at": "2026-05-13T19:02:11Z"    // refreshed every run
+      "agents":            ["Claude Code", "Continue", "Qwen Code"],
+      "universal_agents":  ["GitHub Copilot", "Amp", "Antigravity", "Cline", "Codex"],
+      "universal_more":    8,                  // additional unnamed agents the skills CLI didn't list
+      "first_seen":        "2026-05-13T18:19:43Z",   // write-once
+      "updated_at":        "2026-05-13T19:02:11Z"    // refreshed every run
     }
   }
 }
@@ -306,15 +308,66 @@ earlier versions of cortex. It's harmless on fresh manifests.
 
 ### 6.4 BY column derivation (in `print_global` / `print_folders`)
 
-For each row from `skills list --json`:
+`coretex status` emits one row per skill/agent pair, plus extra rows for
+agents that use the canonical store directly. Three possible BY values:
 
 ```jq
+# Symlink/per-agent rows (one per entry in $skill.agents):
 if $manifest[skill_name] then "cortex" else "ext" end
+
+# Universal rows (one per entry in $manifest[skill_name].universal_agents):
+"universal"
+
+# Optional "(+N more)" row when $manifest[skill_name].universal_more > 0
+"universal"
 ```
+
+The path column for universal rows is always `~/.agents/skills/<name>` —
+the canonical store every universal-mode agent reads from.
 
 The relevant manifest depends on the skill's path: global manifest for
 skills under `~/.agents/` or `~/.<agent>/`; project manifest at
 `<root>/.cortex.json` for any other location.
+
+### 6.5 Parsing universal-agent info from the install output
+
+The `skills list --json` API doesn't tell us which agents have
+"universal" access to a skill (i.e. read from `~/.agents/skills/`
+directly, without a per-agent symlink). The info is only available in
+the human-formatted output of `skills add`, which looks like:
+
+```
+│  ~/.agents/skills/netcase-bbq                                            │
+│    universal: Antigravity, Cline, Gemini CLI, GitHub Copilot, Amp +8 more │
+│    symlink → Claude Code, Continue                                       │
+```
+
+[`parse_install_capture`](scripts/lib/source.sh#L72-L99) reads a captured
+copy of that output, strips ANSI escapes, and emits one TSV row per
+skill: `<name>\t<universal_csv>\t<universal_more>`. The skill name is
+matched off the `~/.agents/skills/<name>` line; the `universal:` line
+following it provides the CSV and an optional `+N more` suffix that we
+store as the `universal_more` integer.
+
+If the output doesn't contain an "Installation Summary" block (e.g. when
+nothing changed on disk), the function emits nothing — `manifest_upsert`
+then preserves any previously recorded `universal_agents` /
+`universal_more` for that skill rather than blanking them.
+
+### 6.6 Verbose mode (`-v` / `--verbose`)
+
+`install_one_source` always captures `skills add` output to a temp file.
+In default mode the capture is hidden; in verbose mode it's also `tee`'d
+to the terminal. The captured copy is then parsed for universal-agent
+info regardless of mode (capturing is free, only display differs).
+
+In default mode, after a successful install, a compact summary is
+printed: skill names, symlink agents, named universal agents, `(+N more)`
+unnamed. In verbose mode the summary is suppressed because the full CLI
+output is already on screen.
+
+Either mode dumps the captured output to stderr if `skills add` exits
+non-zero. There's no way to silently lose error context.
 
 ---
 
@@ -540,8 +593,9 @@ Two layers:
 | **Profile** | A `profiles/<name>.json` file listing sources + scopes. The replayable unit. |
 | **Scope** | `global` (machine-wide) or `project` (per-CWD). Decides which manifest gets the entry. |
 | **Manifest** | The JSON file (`~/.cortex/manifest.json` or `<cwd>/.cortex.json`) where cortex records what it installed. |
-| **BY** | The `cortex status` column showing each skill's relationship to cortex: `cortex` (in manifest) / `ext` (not in manifest). |
+| **BY** | The `cortex status` column showing each skill/agent row's relationship to cortex: `cortex` (in manifest, per-agent symlink), `universal` (reachable via the canonical store without a symlink), or `ext` (not in manifest). |
 | **ext** | A skill on disk that's not in any cortex manifest — installed manually or by another tool. |
+| **universal install** | A `skills add` installation mode where the skill lives only at `~/.agents/skills/<name>` (the canonical store), with no per-agent symlink. Agents that read the canonical store directly (Antigravity, Gemini CLI, Amp, GitHub Copilot, …) see the skill without coretex/the CLI knowing the exact list of agent names. Captured from `skills add` output; we record up to the first ~5 names the CLI prints plus `universal_more` for any remainder. |
 | **Snapshot** | The JSON output of `npx skills list --json` at a point in time, filtered to a scope. Used post-install to confirm each expected skill actually landed on disk and to read its `agents` list. |
 
 ---
