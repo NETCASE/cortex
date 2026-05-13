@@ -15,14 +15,17 @@ For implementation details, code references, and how to extend `cortex`, see **[
 # Prereqs
 brew install jq node                                                   # jq required; node for npx
 
-# Clone & alias
+# Clone & register the alias
 gh repo clone NETCASE/cortex ~/Documents/NETCASE/Code/cortex
-echo 'alias cortex="bash ~/Documents/NETCASE/Code/cortex/scripts/cortex.sh"' >> ~/.zshrc
-source ~/.zshrc
+cd ~/Documents/NETCASE/Code/cortex
+bash install.sh                                                        # adds `cortex` alias to ~/.zshrc or ~/.bashrc
+source ~/.zshrc                                                        # or open a new terminal
 
 # Install the system profile (globally, for every detected agent)
 cortex install system
 ```
+
+`install.sh` is idempotent and conflict-aware: re-running it does nothing if the alias is already in place, and it refuses to overwrite an existing `alias cortex=` line that points elsewhere.
 
 In any project that needs framework-specific skills:
 
