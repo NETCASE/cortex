@@ -1,0 +1,12 @@
+{
+  "name": "dev",
+  "description": "Software development skills.",
+  "sources": [
+    { "source": "NETCASE/cortex",   "scope": "project" },
+    {
+      "source": "dirnbauer/webconsulting-skills",
+      "scope": "project",
+      "skills": ["typo3-datahandler", "typo3-docs", "typo3-solr"]
+    }
+  ]
+}

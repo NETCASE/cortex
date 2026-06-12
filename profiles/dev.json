@@ -1,9 +1,25 @@
 {
   "name": "dev",
-  "description": "Software development skills (Payload, Next.js, Matt Pocock).",
+  "description": "Software development skills.",
   "sources": [
-    { "source": "payloadcms/payload",      "scope": "project" },
+    { "source": "payloadcms/payload", "scope": "project" },
     { "source": "vercel-labs/next-skills", "scope": "project" },
-    { "source": "mattpocock/skills",       "scope": "project" }
+    {
+      "source": "vercel-labs/agent-skills",
+      "scope": "project",
+      "skills": ["deploy-to-vercel"],
+      "agents": ["claude"]
+    },
+    {
+      "source": "metalagman/agent-skills",
+      "scope": "project",
+      "skills": ["gitflow"]
+    },
+    { "source": "mattpocock/skills", "scope": "global", "skills": ["caveman"] },
+    {
+      "source": "anthropics/skills",
+      "scope": "project",
+      "skills": ["frontend-design"]
+    }
   ]
 }
